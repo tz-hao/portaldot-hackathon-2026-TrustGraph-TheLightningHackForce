@@ -40,12 +40,14 @@ cleanup() {
     info "Stopping services..."
 
     # stop substrate node
+    if [ -f "$PID_DIR/chain.pid" ]; then
+        local chain_pid=$(cat "$PID_DIR/chain.pid" 2>/dev/null)
+        [ -n "$chain_pid" ] && kill -0 "$chain_pid" 2>/dev/null && kill "$chain_pid" 2>/dev/null && info "Stopped chain (WSL)"
+        rm -f "$PID_DIR/chain.pid"
+    fi
+    # fallback: pkill inside WSL / locally
     if has_wsl_cmd; then
-        info "Stopping substrate-contracts-node in WSL..."
         wsl -e bash -c "export PATH=\$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin; pkill -f substrate-contracts-node" 2>/dev/null || true
-    elif is_wsl; then
-        info "Stopping substrate-contracts-node..."
-        pkill -f substrate-contracts-node 2>/dev/null || true
     else
         pkill -f substrate-contracts-node 2>/dev/null || true
     fi
@@ -138,7 +140,8 @@ start_chain() {
 
     if has_wsl_cmd; then
         info "Launching in WSL..."
-        wsl -e bash -c "export PATH=\$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin; nohup $NODE_BIN --dev --unsafe-rpc-external --rpc-port $CHAIN_WS_PORT > /tmp/substrate-node.log 2>&1 &"
+        wsl -e bash -c "export PATH=\$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin; exec $NODE_BIN --dev --unsafe-rpc-external --rpc-port $CHAIN_WS_PORT > /tmp/substrate-node.log 2>&1" &
+        echo $! > "$PID_DIR/chain.pid"
     elif is_wsl; then
         info "Launching directly (inside WSL)..."
         nohup "$NODE_BIN" --dev --unsafe-rpc-external --rpc-port "$CHAIN_WS_PORT" > /tmp/substrate-node.log 2>&1 &
