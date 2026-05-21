@@ -1,0 +1,26 @@
+# --- Claude Code ---
+.claude/
+
+# --- Runtime PIDs & Logs ---
+.trustgraph-testnet/
+
+# --- Databases ---
+*.db
+*.db-journal
+*.db-wal
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+
+# --- Environment (contains local paths) ---
+.env
+
+# --- Rust / ink! build artifacts ---
+trustgraph-contract/target/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini

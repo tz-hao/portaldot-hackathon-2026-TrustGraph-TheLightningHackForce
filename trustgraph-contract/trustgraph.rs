@@ -70,6 +70,10 @@ pub mod trustgraph {
         profiles: Mapping<AccountId, Profile>,
         /// 背书关系：记录信任连线，从一个 AccountId 到另一个 AccountId 的映射
         endorsements: Mapping<(AccountId, AccountId), Endorsement>,
+        /// 已注册身份总数
+        identity_count: u64,
+        /// 索引 → 地址 映射，支持前端按索引遍历所有身份
+        identity_index: Mapping<u64, AccountId>,
     }
 
     impl Default for Trustgraph {
@@ -85,6 +89,8 @@ pub mod trustgraph {
             Self {
                 profiles: Mapping::default(),
                 endorsements: Mapping::default(),
+                identity_count: 0,
+                identity_index: Mapping::default(),
             }
         }
 
@@ -112,6 +118,18 @@ pub mod trustgraph {
             self.endorsements.contains((from, to))
         }
 
+        /// 返回已注册身份总数
+        #[ink(message)]
+        pub fn get_identity_count(&self) -> u64 {
+            self.identity_count
+        }
+
+        /// 按索引返回已注册地址（0-based）
+        #[ink(message)]
+        pub fn get_identity_by_index(&self, index: u64) -> Option<AccountId> {
+            self.identity_index.get(index)
+        }
+
         /// 注册身份 (SBT)
         #[ink(message)]
         pub fn register_identity(&mut self, cid: String) -> Result<()> {
@@ -125,6 +143,10 @@ pub mod trustgraph {
                 ipfs_cid: cid.clone(),
             };
             self.profiles.insert(caller, &profile);
+
+            let index = self.identity_count;
+            self.identity_index.insert(index, &caller);
+            self.identity_count = index.checked_add(1).unwrap();
 
             self.env().emit_event(IdentityMinted {
                 owner: caller,

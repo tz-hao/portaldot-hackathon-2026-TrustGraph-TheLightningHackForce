@@ -1,0 +1,28 @@
+{
+  "success": true,
+  "migratedCount": 0,
+  "skippedCount": 4,
+  "migrated": [],
+  "skipped": [
+    {
+      "address": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+      "reason": "already_cid",
+      "value": "QmUHGjVj7BZgJhb2gUq2kh1NzkVkryGxYtDQaB5VC2CYCc"
+    },
+    {
+      "address": "5FbSap4BsWfjyRhCchoVdZHkDnmDm3NEgLZ25mesq4aw2WvX",
+      "reason": "already_cid",
+      "value": "QmcKBi5ULbfdwWoygV4oDubkmCez3CJaZwSDDm7KsLqPk2"
+    },
+    {
+      "address": "5HRNwtKF8kS9LqHpsKELR9U48wwii8NWW3hNcWyNgJ3km1Lp",
+      "reason": "already_cid",
+      "value": "QmaRbBjUCwNy1xZ5cNXoHFJG8VMmDUaXCU79VVf47Budkd"
+    },
+    {
+      "address": "5H8gQePnDY3C7ipVEKii4nTuwZfvTmdCn7cZbrXaWZFPZY6e",
+      "reason": "already_cid",
+      "value": "QmWnEKTPbjwpEKv6qVBovKKzn8iSoX1eX6fZgEe5WhCue9"
+    }
+  ]
+}

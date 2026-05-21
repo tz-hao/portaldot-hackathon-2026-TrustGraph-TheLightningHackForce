@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>SovereignGraph | 主权信任图谱 - Portaldot 原生DApp</title>
+    <!-- Google Fonts & TailwindCSS -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Polkadot.js 扩展 & API 通过动态 import 加载 -->
+    <!-- 可视化库 G6 -->
+    <script src="https://gw.alipayobjects.com/os/lib/antv/g6/4.8.24/dist/g6.min.js"></script>
+    <!-- dayjs -->
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.10/dayjs.min.js"></script>
+    <!-- axios -->
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.2/dist/axios.min.js"></script>
+    <!-- Vue 2 -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.7.14/dist/vue.js"></script>
+    <!-- SovereignGraph 前端模块 -->
+    <script src="js/config.js?v=20260520"></script>
+    <script src="js/mixin-api.js?v=20260520"></script>
+    <script src="js/mixin-wallet.js?v=20260520"></script>
+    <script src="js/mixin-graph.js?v=20260520"></script>
+    <script src="js/mixin-app.js?v=20260520"></script>
+    <style>
+        * { font-family: 'Inter', sans-serif; }
+        body { background: #f8fafc; }
+        .card-gradient {
+            background: linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(249,250,251,0.98) 100%);
+            backdrop-filter: blur(2px);
+        }
+        .btn-primary { background: #2c3e66; transition: all 0.2s ease; }
+        .btn-primary:hover:not(:disabled) { background: #1e2a4a; transform: translateY(-1px); }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+        .status-connected { background: #10b981; box-shadow: 0 0 0 2px rgba(16,185,129,0.2); }
+        .status-disconnected { background: #ef4444; }
+        .status-pending { background: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.18); }
+        .loading-spinner {
+            border: 2px solid rgba(0,0,0,0.1);
+            border-top: 2px solid #2c3e66;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .graph-container { background: #fefefe; border-radius: 24px; box-shadow: 0 20px 35px -12px rgba(0,0,0,0.1); }
+        .toast-notice {
+            position: fixed; bottom: 24px; right: 24px; z-index: 50;
+            background: #1f2937; color: white; padding: 12px 20px; border-radius: 40px;
+            font-size: 14px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .zk-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .node-detail-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 60;
+            background: rgba(15, 23, 42, 0.48);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .node-detail-panel {
+            width: min(620px, 100%);
+            max-height: min(760px, calc(100vh - 40px));
+            overflow: hidden;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 18px;
+            box-shadow: 0 24px 70px rgba(15, 23, 42, 0.25);
+        }
+        .node-detail-scroll { max-height: calc(100vh - 170px); overflow-y: auto; }
+        .detail-value { word-break: break-all; overflow-wrap: anywhere; }
+        .detail-code {
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <!-- 顶部 -->
+    <div class="max-w-[1400px] mx-auto px-4 py-6 md:py-8">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-700 to-blue-600 flex items-center justify-center shadow-md">
+                    <span class="text-white font-bold text-xl">⨀</span>
+                </div>
+                <div>
+                    <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-gray-800">SovereignGraph</h1>
+                    <p class="text-sm text-gray-500">主权信任图谱 · 链上身份凭证映射 + 关系证明摘要 · 知识图谱层</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <!-- 模式切换 (Mock / 真实链上) -->
+                <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full shadow-sm border border-gray-200">
+                    <span class="text-xs font-medium text-gray-600">模式:</span>
+                    <button @click="setMockMode(true)" :class="{'bg-indigo-600 text-white': useMockMode, 'bg-gray-100 text-gray-700': !useMockMode}" class="text-xs px-3 py-1 rounded-full transition">Mock</button>
+                    <button @click="setMockMode(false)" :class="{'bg-indigo-600 text-white': !useMockMode, 'bg-gray-100 text-gray-700': useMockMode}" class="text-xs px-3 py-1 rounded-full transition">RealNet</button>
+                </div>
+                <div class="flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-sm border border-gray-200">
+                    <span class="status-dot" :class="connected ? 'status-connected' : 'status-disconnected'"></span>
+                    <span class="text-sm font-medium text-gray-700">{{ walletStatus }}</span>
+                </div>
+                <button @click="connectWallet" :disabled="connecting" class="bg-gray-900 hover:bg-gray-800 text-white px-5 py-2 rounded-full text-sm font-semibold transition shadow-md disabled:opacity-60">
+                    {{ connecting ? '连接中...' : (account ? `⚡ ${shortenAddress(account.address)}` : '🔌 连接 Polkadot 钱包') }}
+                </button>
+            </div>
+        </div>
+
+        <div class="mb-6 bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+            <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+                <div>
+                    <p class="text-sm font-semibold text-gray-800">系统状态</p>
+                    <p class="text-xs text-gray-500">实时检查本地链、索引器和 IPFS 是否可用</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button @click="fetchSystemStatus(true)" class="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-full transition">刷新状态</button>
+                    <button
+                        @click="runIpfsMigration"
+                        :disabled="migrationRunning || healthStatus.ipfs.state !== 'ok'"
+                        class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-full transition disabled:opacity-50"
+                    >
+                        {{ migrationRunning ? '迁移中...' : '迁移旧资料到 IPFS' }}
+                    </button>
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <div class="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm">
+                    <span class="status-dot" :class="statusDotClass(healthStatus.chain)"></span>
+                    <span>节点: {{ healthStatus.chain.label }}</span>
+                </div>
+                <div class="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm">
+                    <span class="status-dot" :class="statusDotClass(healthStatus.indexer)"></span>
+                    <span>索引器: {{ healthStatus.indexer.label }}</span>
+                </div>
+                <div class="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm">
+                    <span class="status-dot" :class="statusDotClass(healthStatus.ipfs)"></span>
+                    <span>IPFS: {{ healthStatus.ipfs.label }}</span>
+                </div>
+                <div class="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 text-sm">
+                    <span class="status-dot" :class="statusDotClass(healthStatus.contract)"></span>
+                    <span>合约: {{ healthStatus.contract.label }}</span>
+                </div>
+            </div>
+            <div class="mt-3 text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
+                <span>RPC: {{ healthStatus.rpcUrl || '未检测' }}</span>
+                <span>已同步区块: {{ healthStatus.lastProcessedBlock ?? '-' }}</span>
+                <span>当前区块: {{ healthStatus.currentBlock ?? '-' }}</span>
+            </div>
+            <div v-if="healthStatus.lastError" class="mt-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                {{ healthStatus.lastError }}
+            </div>
+        </div>
+
+        <div v-if="availableAccounts.length" class="mb-6 bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+            <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+                <div>
+                    <p class="text-sm font-semibold text-gray-800">已连接账户</p>
+                    <p class="text-xs text-gray-500">点击任意账户即可切换当前操作账户与签名账户</p>
+                </div>
+                <div class="text-xs text-gray-500">共 {{ availableAccounts.length }} 个</div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button
+                    v-for="wallet in availableAccounts"
+                    :key="wallet.address"
+                    @click="switchActiveAccount(wallet.address)"
+                    :class="account && wallet.address === account.address ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-gray-50 text-gray-700 border-gray-300 hover:bg-gray-100'"
+                    class="px-3 py-2 rounded-xl border text-left transition"
+                >
+                    <div class="font-medium">{{ accountChipLabel(wallet) }}</div>
+                    <div
+                        class="mt-1 text-[11px] inline-flex px-2 py-0.5 rounded-full"
+                        :class="accountStatusClass(wallet.address, account && wallet.address === account.address)"
+                    >
+                        {{ accountStatusText(wallet.address) }}
+                    </div>
+                </button>
+            </div>
+        </div>
+
+        <!-- 两列布局 -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <!-- 左侧操作区 -->
+            <div class="lg:col-span-4 space-y-5">
+                <!-- 铸造 SBT -->
+                <div class="card-gradient rounded-2xl border border-gray-200/80 shadow-md p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2"><span class="text-indigo-600">◆</span> 注册链上身份节点</h2>
+                        <span class="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded-full">消耗 POT gas</span>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-3">注册不可重复的链上身份凭证，作为图谱中的核心节点（人类 / AI Agent）。</p>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">名称 / 昵称</label>
+                        <input type="text" v-model="newIdentity.name" placeholder="例如: Alice, Agent-007" class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-300">
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">元数据 (角色/组织)</label>
+                        <input type="text" v-model="newIdentity.metadata" placeholder="开发者 / DAO / AI" class="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm">
+                    </div>
+                    <button @click="mintSBT" :disabled="!account || minting" class="w-full btn-primary text-white font-semibold py-2.5 rounded-xl shadow flex justify-center items-center gap-2 disabled:opacity-50">
+                        <span v-if="minting" class="loading-spinner"></span>
+                        {{ minting ? '提交中 (消耗POT)...' : '✨ 注册身份节点' }}
+                    </button>
+                    <div v-if="lastMintTx" class="mt-3 text-xs bg-gray-100 p-2 rounded-lg truncate text-gray-600">✅ {{ lastMintTx }}</div>
+                </div>
+
+                <!-- 创建关系边 (ZK证明) -->
+                <div class="card-gradient rounded-2xl border border-gray-200/80 shadow-md p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2"><span class="text-emerald-600">⛓️</span> 创建信任关系边</h2>
+                        <span class="zk-badge text-white text-xs px-2 py-1 rounded-full">证明摘要</span>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-3">在两个身份节点间建立关联，链上仅存储关系证明摘要，详细资料放在链下。</p>
+                    <div class="grid grid-cols-2 gap-2 mb-3">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600">源地址</label>
+                            <input type="text" v-model="newEdge.fromId" placeholder="连接钱包后自动填充" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600">目标地址</label>
+                            <input type="text" v-model="newEdge.toId" placeholder="输入已注册地址，例如 Bob" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs">
+                            <select
+                                @change="pickRegisteredTarget($event.target.value)"
+                                class="w-full mt-2 border border-gray-300 rounded-lg px-3 py-2 text-xs bg-white"
+                            >
+                                <option value="">从已注册账户中快速选择</option>
+                                <option
+                                    v-for="option in registeredTargetOptions()"
+                                    :key="option.address"
+                                    :value="option.address"
+                                >
+                                    {{ option.label }}
+                                </option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-xs font-medium text-gray-600">关系类型</label>
+                        <select v-model="newEdge.relationshipType" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="COLLABORATION">🤝 协作 (Collaboration)</option>
+                            <option value="ENDORSEMENT">🏅 背书 (Endorsement)</option>
+                            <option value="CONTRIBUTION">💻 代码贡献 (Contribution)</option>
+                        </select>
+                    </div>
+                    <button @click="createRelationship" :disabled="!account || creatingEdge" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-semibold py-2.5 rounded-xl shadow flex justify-center items-center gap-2 disabled:opacity-50">
+                        <span v-if="creatingEdge" class="loading-spinner"></span>
+                        {{ creatingEdge ? '提交关系证明 (消耗POT)...' : '🔗 建立关系边' }}
+                    </button>
+                    <div v-if="lastEdgeTx" class="mt-3 text-xs bg-gray-100 p-2 rounded-lg truncate text-gray-600">🔗 {{ lastEdgeTx }}</div>
+                </div>
+
+                <!-- 索引器状态 & 图谱统计 -->
+                <div class="bg-white/70 rounded-2xl border border-gray-200 p-4 shadow-sm">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <p class="text-xs text-gray-500 uppercase tracking-wide">图谱规模</p>
+                            <p class="text-2xl font-bold text-gray-800">{{ graphData.nodes.length }} 节点 / {{ graphData.edges.length }} 关系</p>
+                        </div>
+                        <div class="bg-indigo-50 px-3 py-1 rounded-full text-xs font-mono text-indigo-800">POT 微循环</div>
+                    </div>
+                    <div class="mt-2 text-xs text-gray-500">索引器: {{ indexerStatus }} </div>
+                    <div class="mt-2 flex gap-2">
+                        <button @click="refreshFromIndexer" class="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-full transition">⟳ 同步索引器数据</button>
+                    </div>
+                    <div v-if="lastMigration" class="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
+                        <div class="flex items-center justify-between gap-3 mb-2">
+                            <div>
+                                <p class="text-sm font-semibold text-indigo-900">最近一次 IPFS 迁移</p>
+                                <p class="text-xs text-indigo-700">
+                                    已迁移 {{ lastMigration.migratedCount || 0 }} 条，跳过 {{ lastMigration.skippedCount || 0 }} 条
+                                </p>
+                            </div>
+                            <button @click="dismissMigrationResult" class="text-xs text-indigo-700 hover:text-indigo-900">关闭</button>
+                        </div>
+                        <div v-if="lastMigration.migrated && lastMigration.migrated.length" class="space-y-2 max-h-44 overflow-y-auto">
+                            <div v-for="item in lastMigration.migrated" :key="item.address" class="text-xs bg-white border border-indigo-100 rounded-lg p-2 text-gray-700">
+                                <div>{{ shortenAddress(item.address) }} -> {{ item.migratedCid }}</div>
+                            </div>
+                        </div>
+                        <div class="mt-2 text-[11px] text-indigo-700 break-all">
+                            报告文件: {{ lastMigration.reportPath || '未生成' }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧图谱区 + 语义查询 -->
+            <div class="lg:col-span-8 space-y-5">
+                <div class="graph-container bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-md">
+                    <div class="px-5 py-3 border-b border-gray-100 flex justify-between items-center flex-wrap gap-2">
+                        <div class="flex items-center gap-2">
+                            <span class="font-semibold text-gray-700">🗺️ 动态信任图谱 (RDF 知识结构)</span>
+                            <span class="text-xs text-gray-400">基于 Subsquid 事件重构</span>
+                        </div>
+                        <div class="flex gap-2 items-center">
+                            <input type="text" v-model="semanticQuery" @keyup.enter="applySemanticHighlight" placeholder="搜索节点/关系..." class="text-xs border rounded-full px-3 py-1 w-40 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+                            <button @click="applySemanticHighlight" class="text-xs bg-indigo-100 hover:bg-indigo-200 px-3 py-1 rounded-full">高亮</button>
+                            <button @click="resetHighlight" class="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-full">重置</button>
+                        </div>
+                    </div>
+                    <div id="graphCanvas" style="height: 460px; width: 100%; background: #fdfdfd;"></div>
+                    <div class="px-5 py-2 text-xs text-gray-400 border-t border-gray-100 flex justify-between">
+                        <span>💡 节点=链上身份 | 边=关系证明摘要 (可验证)</span>
+                        <span>🎨 悬停查看详情</span>
+                    </div>
+                </div>
+                <!-- 事件日志 与 对接API示例 -->
+                <div class="bg-gray-50 rounded-xl border border-gray-200 p-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                        <span class="text-sm font-medium text-gray-700">实时信任流日志 · 链上事件 + 索引器回调</span>
+                        <span class="text-[10px] text-gray-400 ml-auto">对接 portaldot 测试网</span>
+                    </div>
+                    <div class="h-28 overflow-y-auto space-y-1 text-xs font-mono">
+                        <div v-for="(log, idx) in eventLogs.slice().reverse()" :key="idx" class="border-b border-gray-200 py-1 text-gray-600">
+                            {{ log }}
+                        </div>
+                        <div v-if="eventLogs.length === 0" class="text-gray-400 italic">等待链上交互或索引器推送...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div
+        v-if="selectedNodeDetail"
+        class="node-detail-backdrop"
+        @click.self="closeNodeDetail"
+    >
+        <div class="node-detail-panel">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
+                <div>
+                    <div class="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Graph Node</div>
+                    <h3 class="mt-1 text-xl font-bold text-gray-900">{{ selectedNodeDetail.name || 'Unnamed node' }}</h3>
+                    <p class="mt-1 text-xs text-gray-500">{{ selectedNodeDetail.type || 'entity' }}</p>
+                </div>
+                <button
+                    @click="closeNodeDetail"
+                    class="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center text-xl leading-none"
+                    aria-label="Close node detail"
+                >×</button>
+            </div>
+            <div class="node-detail-scroll p-5 space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <div class="text-xs text-gray-500">入度</div>
+                        <div class="mt-1 text-2xl font-bold text-gray-900">{{ selectedNodeDetail.inDegree }}</div>
+                    </div>
+                    <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <div class="text-xs text-gray-500">出度</div>
+                        <div class="mt-1 text-2xl font-bold text-gray-900">{{ selectedNodeDetail.outDegree }}</div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="text-xs font-semibold text-gray-500 mb-1">完整地址</div>
+                    <div class="detail-value rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-mono text-gray-800">
+                        {{ selectedNodeDetail.address || '-' }}
+                    </div>
+                </div>
+
+                <div>
+                    <div class="text-xs font-semibold text-gray-500 mb-1">IPFS CID</div>
+                    <div class="detail-value rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-mono text-gray-800">
+                        {{ selectedNodeDetail.ipfsCid || '-' }}
+                    </div>
+                </div>
+
+                <div>
+                    <div class="text-xs font-semibold text-gray-500 mb-1">metadata</div>
+                    <pre class="detail-code text-sm text-gray-800 font-mono">{{ selectedNodeDetail.metadataText || '-' }}</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div v-if="toastMessage" class="toast-notice">{{ toastMessage }}</div>
+</div>
+
+<script>
+    // ----------------------------- 对接规范 ---------------------------------
+    // RealNet 模式直接连接本地 --dev 节点与已部署 TrustGraph 合约。
+    // 配置文件 (CONTRACT_CONFIG, toastTimer) 位于 js/config.js
+    // 业务方法按模块拆分至 js/mixin-*.js
+
+    Vue.component('toast', {});
+    new Vue({
+        el: '#app',
+        mixins: [
+            window.mixin_api,
+            window.mixin_wallet,
+            window.mixin_graph,
+            window.mixin_app,
+        ],
+        data: {
+            // 钱包
+            connected: false,
+            connecting: false,
+            account: null,
+            availableAccounts: [],
+            walletStatus: '未连接',
+            // 模式: true=本地模拟, false=真实链上+索引器
+            useMockMode: true,
+            // 表单
+            newIdentity: { name: '', metadata: '' },
+            newEdge: { fromId: '', toId: '', relationshipType: 'COLLABORATION' },
+            minting: false,
+            creatingEdge: false,
+            lastMintTx: '',
+            lastEdgeTx: '',
+            // 图谱数据
+            graphData: { nodes: [], edges: [] },
+            selectedNodeDetail: null,
+            eventLogs: [],
+            semanticQuery: '',
+            g6GraphInstance: null,
+            indexerStatus: 'Mock 模式',
+            toastMessage: '',
+            // 真实链上api对象
+            polkadotApi: null,
+            sbtContract: null,
+            contractMetadata: null,
+            contractReady: false,
+            extensionDapp: null,
+            activeRpcUrl: '',
+            healthStatus: {
+                chain: { state: 'pending', label: '检测中' },
+                indexer: { state: 'pending', label: '检测中' },
+                ipfs: { state: 'pending', label: '检测中' },
+                contract: { state: 'pending', label: '未检测' },
+                rpcUrl: '',
+                lastProcessedBlock: null,
+                currentBlock: null,
+                lastError: '',
+            },
+            healthCheckTimer: null,
+            migrationRunning: false,
+            lastMigration: null,
+            accountRegistrationStatus: {},
+            registrationStatusLoading: false,
+        },
+        async mounted() {
+            this.initMockGraphData();
+            this.renderG6Graph();
+            this.addLog("SovereignGraph 前端已启动 | 接口规范: ink! 合约 + Subsquid 索引器");
+            this.fetchSystemStatus();
+            this.healthCheckTimer = setInterval(() => {
+                this.fetchSystemStatus();
+            }, 15000);
+            if (!this.useMockMode) {
+                this.initRealApi().catch(() => {});
+            }
+        },
+        beforeDestroy() {
+            if (this.healthCheckTimer) {
+                clearInterval(this.healthCheckTimer);
+                this.healthCheckTimer = null;
+            }
+        },
+    });
+</script>
+</body>
+</html>

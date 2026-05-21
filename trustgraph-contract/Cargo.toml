@@ -2,6 +2,7 @@
 name = "trustgraph"
 version = "0.1.0"
 description = "TrustGraph smart contract implemented with ink!"
+authors = ["TrustGraph Team"]
 edition = "2021"
 
 [dependencies]
