@@ -24,6 +24,11 @@ CHAIN_WS_PORT="${CHAIN_WS_PORT:-9944}"
 
 mkdir -p "$PID_DIR"
 
+# ---------- Environment detection ----------
+is_wsl()      { uname -r 2>/dev/null | grep -qi "microsoft\|wsl"; }
+has_wsl_cmd() { command -v wsl >/dev/null 2>&1; }
+is_windows()  { has_wsl_cmd || [[ -d /c/Windows ]]; }
+
 # ---------- Helpers ----------
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 info()  { echo -e "${GREEN}[OK]${NC} $1"; }
@@ -34,10 +39,15 @@ step()  { echo -e "\n${CYAN}--- $1 ---${NC}"; }
 cleanup() {
     info "Stopping services..."
 
-    # stop substrate node in WSL
-    if command -v wsl >/dev/null 2>&1; then
+    # stop substrate node
+    if has_wsl_cmd; then
         info "Stopping substrate-contracts-node in WSL..."
         wsl bash -c "pkill -f substrate-contracts-node" 2>/dev/null || true
+    elif is_wsl; then
+        info "Stopping substrate-contracts-node..."
+        pkill -f substrate-contracts-node 2>/dev/null || true
+    else
+        pkill -f substrate-contracts-node 2>/dev/null || true
     fi
 
     for f in "$PID_DIR"/*.pid; do
@@ -49,8 +59,8 @@ cleanup() {
     done
     info "All services stopped"
 }
-# trap set in cmd_start only, not globally
-# ---------- Command finders (Windows-aware) ----------
+
+# ---------- Command finders ----------
 find_python() {
     command -v python3 2>/dev/null && { PYTHON=python3; return 0; }
     command -v python 2>/dev/null  && { PYTHON=python; return 0; }
@@ -67,30 +77,49 @@ find_cargo() {
 
 find_ipfs() {
     command -v ipfs 2>/dev/null && return 0
-    for d in "/c/Program Files/IPFS/go-ipfs" "$HOME/go-ipfs" "/usr/local/bin"; do
+    # Windows paths (Git Bash)
+    for d in "/c/Program Files/IPFS/go-ipfs" "/d/IPFS/kubo" "$HOME/go-ipfs"; do
+        [ -x "$d/ipfs" ] || [ -x "$d/ipfs.exe" ] && { export PATH="$d:$PATH"; return 0; }
+    done
+    # WSL paths (when running inside WSL, Windows IPFS might be reachable)
+    for d in "/mnt/c/Program Files/IPFS/go-ipfs" "/mnt/d/IPFS/kubo" "/usr/local/bin"; do
         [ -x "$d/ipfs" ] || [ -x "$d/ipfs.exe" ] && { export PATH="$d:$PATH"; return 0; }
     done
     return 1
 }
 
-# ---------- WSL substrate node ----------
-start_chain_in_wsl() {
-    if ! command -v wsl >/dev/null 2>&1; then
-        warn "WSL not available, skip substrate chain startup"
-        return 1
+# ---------- Substrate chain startup ----------
+start_chain() {
+    local NODE_BIN=""
+
+    # find the binary
+    if has_wsl_cmd; then
+        # Git Bash on Windows: chain runs in WSL
+        NODE_BIN=$(wsl bash -c 'command -v substrate-contracts-node 2>/dev/null || echo "$HOME/.cargo/bin/substrate-contracts-node"' 2>/dev/null)
+    elif is_wsl; then
+        # Already inside WSL
+        NODE_BIN=$(command -v substrate-contracts-node 2>/dev/null || echo "$HOME/.cargo/bin/substrate-contracts-node")
+    else
+        # Native Linux
+        NODE_BIN=$(command -v substrate-contracts-node 2>/dev/null || echo "$HOME/.cargo/bin/substrate-contracts-node")
     fi
 
-    local NODE_BIN="/home/milli/.cargo/bin/substrate-contracts-node"
-
-    # check if chain already reachable (WS endpoint returns any HTTP response)
+    # check if chain already reachable
     if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$CHAIN_WS_PORT" 2>/dev/null | grep -qE '^[0-9]+$'; then
         info "Substrate chain already reachable on ws://127.0.0.1:$CHAIN_WS_PORT"
         return 0
     fi
 
-    # also check if process running inside WSL but port not yet open
-    if wsl bash -c "pgrep -f substrate-contracts-node" >/dev/null 2>&1; then
-        info "substrate-contracts-node already running in WSL (waiting for port)..."
+    # check if process already running
+    local chain_running=false
+    if has_wsl_cmd; then
+        wsl bash -c "pgrep -f substrate-contracts-node" >/dev/null 2>&1 && chain_running=true
+    else
+        pgrep -f substrate-contracts-node >/dev/null 2>&1 && chain_running=true
+    fi
+
+    if $chain_running; then
+        info "substrate-contracts-node already running (waiting for port)..."
         for i in $(seq 1 15); do
             sleep 1
             if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$CHAIN_WS_PORT" 2>/dev/null | grep -qE '^[0-9]+$'; then
@@ -102,10 +131,20 @@ start_chain_in_wsl() {
         return 1
     fi
 
-    step "Starting substrate-contracts-node in WSL"
-    info "Launching substrate-contracts-node --dev in WSL..."
+    step "Starting substrate-contracts-node"
 
-    wsl bash -c "nohup $NODE_BIN --dev --unsafe-rpc-external --rpc-port $CHAIN_WS_PORT > /tmp/substrate-node.log 2>&1 &"
+    if has_wsl_cmd; then
+        info "Launching in WSL..."
+        wsl bash -c "nohup $NODE_BIN --dev --unsafe-rpc-external --rpc-port $CHAIN_WS_PORT > /tmp/substrate-node.log 2>&1 &"
+    elif is_wsl; then
+        info "Launching directly (inside WSL)..."
+        nohup "$NODE_BIN" --dev --unsafe-rpc-external --rpc-port "$CHAIN_WS_PORT" > /tmp/substrate-node.log 2>&1 &
+        echo $! > "$PID_DIR/chain.pid"
+    else
+        info "Launching directly..."
+        nohup "$NODE_BIN" --dev --rpc-port "$CHAIN_WS_PORT" > /tmp/substrate-node.log 2>&1 &
+        echo $! > "$PID_DIR/chain.pid"
+    fi
 
     info "Waiting for chain to boot (may take 15-30s)..."
     for i in $(seq 1 40); do
@@ -118,8 +157,17 @@ start_chain_in_wsl() {
         fi
     done
     echo ""
-    warn "Substrate chain did not respond within 40s — check WSL logs at /tmp/substrate-node.log"
+    warn "Substrate chain did not respond within 40s"
     return 1
+}
+
+# ---------- Status ----------
+chain_status_label() {
+    if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$CHAIN_WS_PORT" 2>/dev/null | grep -qE '^[0-9]+$'; then
+        echo -e "${GREEN}reachable${NC} (ws://127.0.0.1:$CHAIN_WS_PORT)"
+    else
+        echo -e "${RED}not reachable${NC}"
+    fi
 }
 
 # ---------- Start ----------
@@ -127,16 +175,20 @@ cmd_start() {
     trap cleanup EXIT INT TERM
     step "TrustGraph Startup"
 
-    # 1. Preflight
+    # 1. Environment
     info "Checking environment..."
+    if has_wsl_cmd; then  info "  Mode   : Windows (Git Bash) → WSL for chain"; fi
+    if is_wsl; then       info "  Mode   : WSL (native chain)"; fi
+    if ! has_wsl_cmd && ! is_wsl; then info "  Mode   : Native Linux"; fi
+
     find_python || exit 1
     info "  Python : $PYTHON"
 
     find_cargo && info "  Cargo  : found" || warn "  Cargo  : not found (skip contract build)"
     find_ipfs  && info "  IPFS   : found" || warn "  IPFS   : not found (skip IPFS daemon)"
 
-    # 2. Substrate chain (WSL)
-    start_chain_in_wsl
+    # 2. Substrate chain
+    start_chain
 
     # 3. Contract build
     if [ -f "$CONTRACT_DIR/target/ink/trustgraph.contract" ]; then
@@ -218,13 +270,8 @@ cmd_status() {
     echo "TrustGraph Service Status"
     echo "-------------------------"
 
-    # WSL chain
-    echo -n "Substrate chain (WSL): "
-    if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$CHAIN_WS_PORT" 2>/dev/null | grep -qE '^[0-9]+$'; then
-        echo -e "${GREEN}reachable${NC} (ws://127.0.0.1:$CHAIN_WS_PORT)"
-    else
-        echo -e "${RED}not reachable${NC}"
-    fi
+    echo -n "Substrate chain: "
+    chain_status_label
 
     for f in "$PID_DIR"/*.pid; do
         [ -f "$f" ] || continue
