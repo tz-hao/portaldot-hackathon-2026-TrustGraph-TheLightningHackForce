@@ -20,7 +20,12 @@ __pycache__/
 # --- Rust / ink! build artifacts ---
 trustgraph-contract/target/
 
-# --- OS ---
+# --- Runtime reports & artifacts ---
+*_report.json
+
+# --- Stale / backup HTML copies ---
+*_fixed.html
+*_fixed*.html
 .DS_Store
 Thumbs.db
 desktop.ini
