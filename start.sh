@@ -69,9 +69,17 @@ find_python() {
 
 find_cargo() {
     command -v cargo 2>/dev/null && return 0
+    # Windows paths (Git Bash)
     for d in "$HOME/.cargo/bin" "/c/Users/$USER/.cargo/bin" "$USERPROFILE/.cargo/bin"; do
         [ -x "$d/cargo" ] || [ -x "$d/cargo.exe" ] && { export PATH="$d:$PATH"; return 0; }
     done
+    # WSL paths (when running from Git Bash, Cargo is often inside WSL)
+    if has_wsl_cmd; then
+        if wsl bash -c 'command -v cargo' >/dev/null 2>&1; then
+            # Cargo exists in WSL — we can use it via wsl for builds
+            return 0
+        fi
+    fi
     return 1
 }
 
@@ -195,7 +203,13 @@ cmd_start() {
         info "Contract artifacts exist, skip build"
     elif find_cargo; then
         step "Building contract"
-        (cd "$CONTRACT_DIR" && cargo contract build --release)
+        if has_wsl_cmd && ! command -v cargo >/dev/null 2>&1; then
+            # Cargo only inside WSL — run build there
+            local wsl_contract_dir=$(wsl wslpath -a "$CONTRACT_DIR" 2>/dev/null || echo "/mnt/c/Users/71546/Desktop/TrustGraph_Project/trustgraph-contract")
+            wsl bash -c "cd '$wsl_contract_dir' && cargo contract build --release"
+        else
+            (cd "$CONTRACT_DIR" && cargo contract build --release)
+        fi
         info "Contract build done"
     else
         warn "Skip contract build"
