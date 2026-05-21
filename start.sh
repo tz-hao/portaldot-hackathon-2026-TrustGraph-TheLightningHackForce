@@ -112,12 +112,6 @@ start_chain() {
         NODE_BIN=$(command -v substrate-contracts-node 2>/dev/null || echo "$HOME/.cargo/bin/substrate-contracts-node")
     fi
 
-    # check if chain already reachable
-    if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$CHAIN_WS_PORT" 2>/dev/null | grep -qE '^[0-9]+$'; then
-        info "Substrate chain already reachable on ws://127.0.0.1:$CHAIN_WS_PORT"
-        return 0
-    fi
-
     # check if process already running
     local chain_running=false
     if has_wsl_cmd; then
@@ -139,6 +133,7 @@ start_chain() {
         return 1
     fi
 
+    # not running — start it
     step "Starting substrate-contracts-node"
 
     if has_wsl_cmd; then
