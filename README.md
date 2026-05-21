@@ -23,6 +23,19 @@ TrustGraph is a **local-first SovereignGraph** that mints on-chain identity SBTs
 - **Indexer + GraphQL**: Subsquid-inspired Python chain indexer decodes SCALE-encoded contract events into a queryable SQLite knowledge graph
 - **Frontend**: Polkadot.js browser extension integration for transaction signing; AntV G6 for interactive graph visualization
 
+### Hackathon Track Alignment — Portaldot Native Application
+
+TrustGraph is built for the **"Build practical on-chain applications natively on Portaldot"** track. Every design decision reflects its requirements:
+
+| Track Requirement | How TrustGraph Delivers |
+|---|---|
+| **Native Portaldot architecture** | ink! 5.1.1 (Rust) smart contract on Substrate `pallet-contracts`. Zero EVM dependencies. Uses `substrate-interface` (Python) and `polkadot.js` — the native Substrate toolchain, not Ethereum libraries. |
+| **Practical, user-facing product** | A browser-based DApp where real users connect a wallet, register an identity, and create endorsement relationships. Not a protocol, not infrastructure — a product with a UI. |
+| **Real on-chain logic** | Every identity and every trust relationship is a contract state change. `register_identity` mints an SBT-like profile. `endorse` stores a cryptographically-hashed proof on-chain. Both emit events consumed by the indexer. |
+| **Runnable MVP** | `bash start.sh start` — one command boots the full stack. Mock mode provides an instant demo without a chain. RealNet mode connects Polkadot.js for live transactions. |
+| **Complete end-to-end demo** | User journey: open DApp → connect wallet → register on-chain identity → upload profile to IPFS → create endorsement edges → explore the live trust graph → semantic search. Every step is functional. |
+| **Clean user scenario** | A Web3 community needs to know **who trusts whom, and why**. TrustGraph gives them a visible, queryable, on-chain trust network — useful for DAO contributor vetting, AI agent reputation, and cross-community credibility. |
+
 ---
 
 ## Technical Architecture
