@@ -42,7 +42,7 @@ cleanup() {
     # stop substrate node
     if has_wsl_cmd; then
         info "Stopping substrate-contracts-node in WSL..."
-        wsl bash -c "pkill -f substrate-contracts-node" 2>/dev/null || true
+        wsl -e bash -c "export PATH=\$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin; pkill -f substrate-contracts-node" 2>/dev/null || true
     elif is_wsl; then
         info "Stopping substrate-contracts-node..."
         pkill -f substrate-contracts-node 2>/dev/null || true
@@ -75,7 +75,7 @@ find_cargo() {
     done
     # WSL paths (when running from Git Bash, Cargo is often inside WSL)
     if has_wsl_cmd; then
-        if wsl bash -c 'command -v cargo' >/dev/null 2>&1; then
+        if wsl -e bash -c "export PATH=\$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin; command -v cargo" >/dev/null 2>&1; then
             # Cargo exists in WSL — we can use it via wsl for builds
             return 0
         fi
@@ -103,7 +103,7 @@ start_chain() {
     # find the binary
     if has_wsl_cmd; then
         # Git Bash on Windows: chain runs in WSL
-        NODE_BIN=$(wsl bash -c 'command -v substrate-contracts-node 2>/dev/null || echo "$HOME/.cargo/bin/substrate-contracts-node"' 2>/dev/null)
+        NODE_BIN=$(wsl -e bash -c "export PATH=\$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin; command -v substrate-contracts-node 2>/dev/null || echo '\$HOME/.cargo/bin/substrate-contracts-node'" 2>/dev/null)
     elif is_wsl; then
         # Already inside WSL
         NODE_BIN=$(command -v substrate-contracts-node 2>/dev/null || echo "$HOME/.cargo/bin/substrate-contracts-node")
@@ -121,7 +121,7 @@ start_chain() {
     # check if process already running
     local chain_running=false
     if has_wsl_cmd; then
-        wsl bash -c "pgrep -f substrate-contracts-node" >/dev/null 2>&1 && chain_running=true
+        wsl -e bash -c "export PATH=\$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin; pgrep -f substrate-contracts-node" >/dev/null 2>&1 && chain_running=true
     else
         pgrep -f substrate-contracts-node >/dev/null 2>&1 && chain_running=true
     fi
@@ -143,7 +143,7 @@ start_chain() {
 
     if has_wsl_cmd; then
         info "Launching in WSL..."
-        wsl bash -c "nohup $NODE_BIN --dev --unsafe-rpc-external --rpc-port $CHAIN_WS_PORT > /tmp/substrate-node.log 2>&1 &"
+        wsl -e bash -c "export PATH=\$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin; nohup $NODE_BIN --dev --unsafe-rpc-external --rpc-port $CHAIN_WS_PORT > /tmp/substrate-node.log 2>&1 &"
     elif is_wsl; then
         info "Launching directly (inside WSL)..."
         nohup "$NODE_BIN" --dev --unsafe-rpc-external --rpc-port "$CHAIN_WS_PORT" > /tmp/substrate-node.log 2>&1 &
@@ -206,7 +206,7 @@ cmd_start() {
         if has_wsl_cmd && ! command -v cargo >/dev/null 2>&1; then
             # Cargo only inside WSL — run build there
             local wsl_contract_dir=$(wsl wslpath -a "$CONTRACT_DIR" 2>/dev/null || echo "/mnt/c/Users/71546/Desktop/TrustGraph_Project/trustgraph-contract")
-            wsl bash -c "cd '$wsl_contract_dir' && cargo contract build --release"
+            wsl -e bash -c "export PATH=\$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin; cd '$wsl_contract_dir' && cargo contract build --release"
         else
             (cd "$CONTRACT_DIR" && cargo contract build --release)
         fi
