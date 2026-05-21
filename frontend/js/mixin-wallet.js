@@ -389,6 +389,57 @@ window.mixin_wallet = {
                 const hex = bytes.map(item => item.toString(16).padStart(2, '0')).join('');
                 return `0x${(hex + window.CONTRACT_CONFIG.defaultProofHash.slice(2)).slice(0, 64)}`;
             },
+        // faucetDistribute — Alice → other accounts (dev chain only)
+        async faucetDistribute() {
+                if (this.faucetRunning) return;
+                if (!this.polkadotApi) {
+                    if (!(await this.initRealApi())) {
+                        this.showToast('请先连接链节点 (RealNet 模式)');
+                        return;
+                    }
+                }
+                const nonAlice = this.availableAccounts.filter(
+                    w => w.address !== '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'
+                );
+                if (nonAlice.length === 0) {
+                    this.showToast('只有 Alice 账户，无需分发');
+                    return;
+                }
+                this.faucetRunning = true;
+                try {
+                    const { Keyring } = await import('https://cdn.jsdelivr.net/npm/@polkadot/api@16.5.6/+esm');
+                    const keyring = new Keyring({ type: 'sr25519' });
+                    const alice = keyring.addFromUri('//Alice');
+                    const UNIT = 1_000_000_000_000n;
+                    const amount = 1000n * UNIT;
+                    let funded = 0;
+                    for (const wallet of nonAlice) {
+                        try {
+                            const { data: bal } = await this.polkadotApi.query.system.account(wallet.address);
+                            if (BigInt(bal.free.toString()) >= amount / 2n) continue;
+                            const tx = this.polkadotApi.tx.balances.transferKeepAlive(wallet.address, amount);
+                            await new Promise((resolve, reject) => {
+                                tx.signAndSend(alice, result => {
+                                    if (result.dispatchError) {
+                                        reject(new Error('transfer failed'));
+                                    } else if (result.status.isInBlock || result.status.isFinalized) {
+                                        resolve(result);
+                                    }
+                                });
+                            });
+                            funded++;
+                            this.addLog(`💰 Alice → ${this.shortenAddress(wallet.address)} 1,000 UNIT`);
+                        } catch (e) { console.warn('faucet skip', wallet.address, e); }
+                    }
+                    this.showToast(funded > 0
+                        ? `✅ 已向 ${funded} 个账户各转入 1,000 UNIT`
+                        : '所有账户已有足够余额');
+                } catch (err) {
+                    this.showToast('水龙头失败: ' + (err.message || err));
+                } finally {
+                    this.faucetRunning = false;
+                }
+            },
         // connectWallet
         async connectWallet() {
                 if (this.connecting) return;

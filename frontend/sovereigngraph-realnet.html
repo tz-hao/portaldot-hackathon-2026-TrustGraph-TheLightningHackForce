@@ -17,11 +17,11 @@
     <!-- Vue 2 -->
     <script src="https://cdn.jsdelivr.net/npm/vue@2.7.14/dist/vue.js"></script>
     <!-- SovereignGraph 前端模块 -->
-    <script src="js/config.js?v=20260520"></script>
-    <script src="js/mixin-api.js?v=20260520"></script>
-    <script src="js/mixin-wallet.js?v=20260520"></script>
-    <script src="js/mixin-graph.js?v=20260520"></script>
-    <script src="js/mixin-app.js?v=20260520"></script>
+    <script src="js/config.js?v=20260521d"></script>
+    <script src="js/mixin-api.js?v=20260521d"></script>
+    <script src="js/mixin-wallet.js?v=20260521d"></script>
+    <script src="js/mixin-graph.js?v=20260521d"></script>
+    <script src="js/mixin-app.js?v=20260521d"></script>
     <style>
         * { font-family: 'Inter', sans-serif; }
         body { background: #f8fafc; }
@@ -172,6 +172,14 @@
                     <p class="text-xs text-gray-500">点击任意账户即可切换当前操作账户与签名账户</p>
                 </div>
                 <div class="text-xs text-gray-500">共 {{ availableAccounts.length }} 个</div>
+                <button
+                    v-if="!useMockMode && availableAccounts.length > 1"
+                    @click="faucetDistribute"
+                    :disabled="faucetRunning"
+                    class="text-xs px-3 py-1.5 rounded-xl bg-amber-100 text-amber-800 hover:bg-amber-200 transition font-medium disabled:opacity-50"
+                >
+                    💧 {{ faucetRunning ? '分发中...' : '领取测试币' }}
+                </button>
             </div>
             <div class="flex flex-wrap gap-2">
                 <button
@@ -189,6 +197,9 @@
                         {{ accountStatusText(wallet.address) }}
                     </div>
                 </button>
+            </div>
+            <div v-if="_registrationAllFailed && _registrationErrorDetail" class="mt-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                ⚠️ 合约查询失败: {{ _registrationErrorDetail }}
             </div>
         </div>
 
@@ -412,7 +423,7 @@
             availableAccounts: [],
             walletStatus: '未连接',
             // 模式: true=本地模拟, false=真实链上+索引器
-            useMockMode: true,
+            useMockMode: false,
             // 表单
             newIdentity: { name: '', metadata: '' },
             newEdge: { fromId: '', toId: '', relationshipType: 'COLLABORATION' },
@@ -450,9 +461,14 @@
             lastMigration: null,
             accountRegistrationStatus: {},
             registrationStatusLoading: false,
+            faucetRunning: false,
+            _registrationAllFailed: false,
+            _registrationErrorDetail: '',
         },
         async mounted() {
-            this.initMockGraphData();
+            if (this.useMockMode) {
+                this.initMockGraphData();
+            }
             this.renderG6Graph();
             this.addLog("SovereignGraph 前端已启动 | 接口规范: ink! 合约 + Subsquid 索引器");
             this.fetchSystemStatus();

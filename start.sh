@@ -21,6 +21,7 @@ BACKEND_PORT="${BACKEND_PORT:-3000}"
 FRONTEND_PORT="${FRONTEND_PORT:-8010}"
 IPFS_API_PORT="${IPFS_API_PORT:-5001}"
 CHAIN_WS_PORT="${CHAIN_WS_PORT:-9944}"
+CONTRACT_ADDR="${CONTRACT_ADDR:-5CqYubyHiCH2bYmTfeLCcLhtBbMJCDHfmHdZWdDd1a5xqUme}"
 
 mkdir -p "$PID_DIR"
 
@@ -196,7 +197,7 @@ cmd_start() {
     # 2. Substrate chain
     start_chain
 
-    # 3. Contract build
+    # 3. Contract build & deploy
     if [ -f "$CONTRACT_DIR/target/ink/trustgraph.contract" ]; then
         info "Contract artifacts exist, skip build"
     elif find_cargo; then
@@ -211,6 +212,19 @@ cmd_start() {
         info "Contract build done"
     else
         warn "Skip contract build"
+    fi
+
+    # 3.5 Deploy contract to fresh dev chain (deterministic address)
+    step "Deploying contract to chain"
+    if has_wsl_cmd; then
+        local wsl_contract_dir=$(wsl wslpath -a "$CONTRACT_DIR" 2>/dev/null || echo "/mnt/c/Users/71546/Desktop/TrustGraph_Project/trustgraph-contract")
+        wsl -e bash -c "export PATH=\$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin; cd '$wsl_contract_dir' && cargo contract instantiate --suri //Alice --execute --skip-confirm 2>&1" 2>&1 | tail -5
+        info "Contract deployed to $CONTRACT_ADDR"
+    elif command -v cargo >/dev/null 2>&1; then
+        (cd "$CONTRACT_DIR" && cargo contract instantiate --suri //Alice --execute --skip-confirm)
+        info "Contract deployed"
+    else
+        warn "Cannot deploy contract — cargo not found"
     fi
 
     # 4. IPFS daemon
@@ -228,8 +242,29 @@ cmd_start() {
         fi
     fi
 
-    # 5. Backend
+    # 5. Backend — kill any stale process on the port first
     step "Starting backend (port $BACKEND_PORT)"
+
+    info "Checking for stale process on port $BACKEND_PORT..."
+    if has_wsl_cmd; then
+        # Windows: use netstat to find PID then taskkill
+        local stale=$(cmd //c "netstat -ano 2>nul | findstr :$BACKEND_PORT" 2>/dev/null | awk '{if($NF ~ /^[0-9]+$/) print $NF}' | head -1)
+        if [ -n "$stale" ]; then
+            cmd //c "taskkill //PID $stale //F" 2>/dev/null && info "Killed stale process on port $BACKEND_PORT (PID $stale)" || true
+        fi
+    elif is_wsl; then
+        fuser -k "$BACKEND_PORT/tcp" 2>/dev/null && info "Killed stale process on port $BACKEND_PORT" || true
+    else
+        fuser -k "$BACKEND_PORT/tcp" 2>/dev/null || lsof -ti:"$BACKEND_PORT" 2>/dev/null | xargs -r kill 2>/dev/null || true
+    fi
+    sleep 1
+
+    # Reset stale DB from previous chain runs (dev chain always starts at block 0)
+    if [ -f "$BACKEND_DIR/trustgraph.db" ]; then
+        info "Resetting stale database (fresh dev chain)"
+        rm -f "$BACKEND_DIR/trustgraph.db" "$BACKEND_DIR/trustgraph.db-journal" "$BACKEND_DIR/trustgraph.db-wal"
+    fi
+
     cd "$BACKEND_DIR"
 
     [ ! -d ".venv" ] && { info "Creating venv..."; $PYTHON -m venv .venv; }

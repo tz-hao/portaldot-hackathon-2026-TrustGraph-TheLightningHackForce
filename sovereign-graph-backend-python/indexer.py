@@ -14,6 +14,20 @@ from substrateinterface.utils.ss58 import ss58_encode
 
 from database import IdentityIpfsMigration, IndexedEndorsement, IndexedIdentity, SessionLocal, SyncState
 
+
+def _fix_double_encoded_utf8(text: str) -> str:
+    """Repair a string that has been double-encoded (UTF-8 bytes treated as Latin-1)."""
+    if not text:
+        return text
+    try:
+        repaired = text.encode("latin-1").decode("utf-8")
+        if repaired != text:
+            return repaired
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        pass
+    return text
+
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(Path(__file__).resolve().with_name(".env"))
 
@@ -494,8 +508,8 @@ class ContractChainIndexer:
                 effective_profile = profile_payload
 
         identity.ipfs_cid = effective_cid
-        identity.display_name = effective_profile.get("name") if effective_profile else None
-        identity.metadata_text = effective_profile.get("metadata") if effective_profile else None
+        identity.display_name = _fix_double_encoded_utf8(effective_profile.get("name")) if effective_profile else None
+        identity.metadata_text = _fix_double_encoded_utf8(effective_profile.get("metadata")) if effective_profile else None
         identity.profile_json = json.dumps(effective_profile, ensure_ascii=False) if effective_profile else None
         identity.registered_at = block_timestamp
         identity.block_number = block_number

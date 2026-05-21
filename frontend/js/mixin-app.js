@@ -21,7 +21,25 @@ window.mixin_app = {
                 const state = this.accountRegistrationStatus[address];
                 if (state === true) return '已注册';
                 if (state === false) return '未注册';
-                return '检测中';
+                // Mock mode: null means haven't synced from graph data yet
+                if (this.useMockMode) return '检测中';
+                // RealNet: chain not reachable at all
+                if (!this.contractReady) return '链未连接';
+                // RealNet: chain connected but every contract query failed
+                if (this._registrationAllFailed) {
+                    const detail = (this._registrationErrorDetail || '').toLowerCase();
+                    if (detail.includes('not found') || detail.includes('not deployed') || detail.includes('contract')) {
+                        return '未部署';
+                    }
+                    if (detail.includes('method') || detail.includes('selector') || detail.includes('未找到')) {
+                        return 'ABI不匹配';
+                    }
+                    return '合约异常';
+                }
+                // RealNet: loading in progress
+                if (this.registrationStatusLoading) return '检测中';
+                // RealNet: individual query failed but not all
+                return '未确认';
             },
         // registeredTargetOptions
         registeredTargetOptions() {
@@ -64,6 +82,12 @@ window.mixin_app = {
                 if (state === false) {
                     return isActive ? 'bg-amber-100 text-amber-800' : 'bg-amber-100 text-amber-700';
                 }
+                // RealNet error states
+                if (!this.useMockMode) {
+                    if (!this.contractReady || this._registrationAllFailed) {
+                        return isActive ? 'bg-white/20 text-white' : 'bg-red-100 text-red-600';
+                    }
+                }
                 return isActive ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-600';
             },
         // syncMockAccountStatuses
@@ -90,19 +114,36 @@ window.mixin_app = {
                     return;
                 }
                 if (!this.contractReady && !(await this.initRealApi())) {
+                    // Chain not reachable — mark all as unconfirmed so UI shows "链未连接"
+                    const fallback = {};
+                    this.availableAccounts.forEach(item => { fallback[item.address] = null; });
+                    this.accountRegistrationStatus = fallback;
                     return;
                 }
                 this.registrationStatusLoading = true;
                 const next = {};
+                let allQueriesFailed = true;
+                let firstErrorMsg = '';
                 try {
                     const caller = this.account?.address || this.availableAccounts[0]?.address;
                     for (const wallet of this.availableAccounts) {
                         try {
                             const registered = await this.contractQuery('is_registered', caller, [wallet.address]);
                             next[wallet.address] = Boolean(registered);
-                        } catch (_) {
+                            allQueriesFailed = false;
+                        } catch (err) {
+                            if (!firstErrorMsg) firstErrorMsg = err.message || String(err);
+                            console.warn('[registration] is_registered query failed for', wallet.address, err);
                             next[wallet.address] = null;
                         }
+                    }
+                    if (allQueriesFailed && this.availableAccounts.length > 0) {
+                        this._registrationAllFailed = true;
+                        this._registrationErrorDetail = firstErrorMsg;
+                        this.addLog(`⚠️ 合约查询全部失败: ${firstErrorMsg}`);
+                    } else {
+                        this._registrationAllFailed = false;
+                        this._registrationErrorDetail = '';
                     }
                     this.accountRegistrationStatus = next;
                 } finally {
@@ -112,6 +153,7 @@ window.mixin_app = {
         // setMockMode
         setMockMode(isMock) {
                 this.useMockMode = isMock;
+                this._registrationAllFailed = false;
                 if (isMock) {
                     this.indexerStatus = 'Mock 数据模式 (本地模拟)';
                     this.initMockGraphData();
@@ -120,6 +162,9 @@ window.mixin_app = {
                     this.addLog("切换到 Mock 模式，用于前端快速演示");
                 } else {
                     this.indexerStatus = '正在连接本地节点与合约...';
+                    // Clear mock data when switching to RealNet mode
+                    this.graphData = { nodes: [], edges: [] };
+                    this.renderG6Graph();
                     this.initRealApi().then(async ok => {
                         if (ok) {
                             await this.fetchSystemStatus();

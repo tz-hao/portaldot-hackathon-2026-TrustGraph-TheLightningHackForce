@@ -118,8 +118,8 @@ window.mixin_api = {
                 return {
                     nodes: (graph.nodes || []).map(node => ({
                         id: node.address,
-                        name: node.name || this.shortenAddress(node.address),
-                        metadata: node.metadata || node.ipfsCid || '',
+                        name: this.fixDoubleEncodedUtf8(node.name || this.shortenAddress(node.address)),
+                        metadata: this.fixDoubleEncodedUtf8(node.metadata || node.ipfsCid || ''),
                         ipfsCid: node.ipfsCid || '',
                         type: 'user',
                         owner: node.address
@@ -222,6 +222,7 @@ window.mixin_api = {
                 if (this.useMockMode) {
                     this.initMockGraphData();
                     this.renderG6Graph();
+                    await this.refreshAccountRegistrationStatus();
                     this.addLog("📡 Mock模式刷新图谱 (模拟索引器事件)");
                     return;
                 }
@@ -245,6 +246,25 @@ window.mixin_api = {
                     this.addLog("❌ 链上同步失败，请检查本地节点、钱包与 metadata");
                     this.indexerStatus = "链上同步失败";
                 }
+            },
+        // fixDoubleEncodedUtf8 — repair strings that have been double-encoded
+        // (UTF-8 bytes mis-interpreted as Latin-1, producing mojibake like "å¼€å 'å®¶")
+        fixDoubleEncodedUtf8(str) {
+                if (!str) return '';
+                try {
+                    // Only attempt repair if the string looks Latin-1-ish
+                    // (contains bytes in the 0x80-0xFF range)
+                    if (/[-ÿ]/.test(str)) {
+                        const bytes = new Uint8Array(str.length);
+                        for (let i = 0; i < str.length; i++) {
+                            bytes[i] = str.charCodeAt(i) & 0xFF;
+                        }
+                        const repaired = new TextDecoder('utf-8').decode(bytes);
+                        // Only return repaired if it actually changed
+                        if (repaired !== str) return repaired;
+                    }
+                } catch (_) { /* ignore */ }
+                return str;
             },
         // uploadIdentityToIpfs
         async uploadIdentityToIpfs() {

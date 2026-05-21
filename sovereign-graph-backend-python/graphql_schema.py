@@ -7,15 +7,38 @@ from strawberry.schema.config import StrawberryConfig
 from database import IndexedEndorsement, IndexedIdentity, SessionLocal
 
 
+def _fix_double_encoded_utf8(text: str) -> str:
+    """Repair a string that has been double-encoded (UTF-8 bytes treated as Latin-1).
+
+    Double-encoding manifest as sequences like ``\\u00e5\\u00bc\\u0080``
+    (each byte of a Chinese UTF-8 character misinterpreted as an ISO-8859-1
+    code-point).  This function detects that pattern and recovers the original
+    Unicode text.
+    """
+    if not text:
+        return text
+    # Quick heuristic: a double-encoded string is full of high Latin-1
+    # code-points (U+0080–U+00FF) which are unlikely in normal text.
+    try:
+        repaired = text.encode("latin-1").decode("utf-8")
+        # If we got here without error and the result looks *more* natural
+        # (contains CJK or common scripts), return it.
+        if repaired != text:
+            return repaired
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        pass
+    return text
+
+
 def _profile_view(identity: IndexedIdentity) -> dict:
-    name = identity.display_name
-    metadata_text = identity.metadata_text or ""
+    name = _fix_double_encoded_utf8(identity.display_name or "")
+    metadata_text = _fix_double_encoded_utf8(identity.metadata_text or "")
 
     if identity.profile_json:
         try:
             parsed = json.loads(identity.profile_json)
-            name = name or parsed.get("name")
-            metadata_text = metadata_text or parsed.get("metadata") or ""
+            name = name or _fix_double_encoded_utf8(parsed.get("name") or "")
+            metadata_text = metadata_text or _fix_double_encoded_utf8(parsed.get("metadata") or "")
         except json.JSONDecodeError:
             pass
 
